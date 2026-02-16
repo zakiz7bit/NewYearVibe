@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>2026 典籍焕彩</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&display=swap" rel="stylesheet">
+
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: "PingFang SC", sans-serif; -webkit-font-smoothing: antialiased; }
+        #bg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(rgba(0,0,0,0.85), rgba(0,0,0,0.6)), url('library.jpg') center/cover no-repeat; filter: blur(25px); transform: scale(1.1); z-index: -1; }
+        #canvas-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
+        #overlay { position: absolute; top: 45%; left: 50%; width: 100%; text-align: center; pointer-events: none; z-index: 2; transform: translate(-50%, -50%); opacity: 0; transition: opacity 0.5s ease, transform 1s cubic-bezier(0.16, 1, 0.3, 1); }
+        #overlay.moved-down { transform: translate(-50%, -50%) translateY(35vh); }
+        #overlay.loaded { opacity: 1; }
+        h1 { font-family: 'Zhi Mang Xing', cursive; font-size: 6rem; letter-spacing: 4px; margin: 0; line-height: 1.1; color: #FFD700; text-shadow: 1px 1px 0px #B8860B, 2px 2px 0px #B8860B, 3px 3px 0px #A67C00, 4px 4px 2px #8B6914, 0 0 30px rgba(255, 215, 0, 0.8), 0 0 60px rgba(255, 69, 0, 0.4); opacity: 0; transform: scale(0.8); transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1); }
+        p.hint { font-family: "PingFang SC", sans-serif; font-size: 14px; color: #F0E68C; margin-top: 20px; letter-spacing: 6px; text-shadow: 0 2px 5px rgba(0,0,0,0.8); opacity: 0; transform: translateY(20px); transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.15s; }
+        .visible { opacity: 1 !important; transform: scale(1) translateY(0) !important; }
+        #loading-text { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #444; font-size: 12px; letter-spacing: 2px; transition: opacity 0.5s; z-index: 0; }
+        @media (max-width: 768px) { h1 { font-size: 4rem; letter-spacing: 2px; } p.hint { font-size: 12px; } }
+    </style>
+</head>
+<body>
+    <div id="bg"></div>
+    <div id="canvas-container"></div>
+    <div id="loading-text">资源加载中...</div>
+
+    <audio id="bgm" src="bgm.mp3" loop preload="auto"></audio>
+
+    <div id="overlay">
+        <h1 id="main-title">骏马迎春</h1>
+        <p class="hint" id="sub-title">点击 · 开启</p>
+    </div>
+
+    <script type="x-shader/x-vertex" id="vertexshader">
+        attribute float size;
+        void main() {
+            vec4 mvPosition = modelViewMatrix * vec4( position, 1.0 );
+            gl_PointSize = size * ( 300.0 / -mvPosition.z );
+            gl_Position = projectionMatrix * mvPosition;
+        }
+    </script>
+    <script type="x-shader/x-fragment" id="fragmentshader">
+        uniform sampler2D pointTexture;
+        void main() {
+            vec4 texColor = texture2D( pointTexture, gl_PointCoord );
+            gl_FragColor = vec4( vec3(1.0, 0.1, 0.0) * texColor.rgb, texColor.a );
+            if ( gl_FragColor.a < 0.1 ) discard;
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'https://cdn.skypack.dev/three@0.136.0';
+
+        let scene, camera, renderer, particleSystem;
+        let currentState = 0, positionsScatter = [], positionsLogo = [], positionsBuilding = [], positionsBook = []; 
+        let targetCamX = 0, targetCamY = 0, windowHalfX = window.innerWidth / 2, windowHalfY = window.innerHeight / 2;
+        let audioStarted = false;
+
+        function createWhiteFuTexture() {
+            const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 256;
+            const ctx = canvas.getContext('2d'); ctx.translate(128, 128); ctx.rotate(-45 * Math.PI / 180);
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.15)'; ctx.fillRect(-90, -90, 180, 180);
+            ctx.rotate(45 * Math.PI / 180); ctx.translate(-128, -128);
+            ctx.font = 'bold 160px "Zhi Mang Xing", cursive'; ctx.fillStyle = '#ffffff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText('福', 128, 128); return new THREE.CanvasTexture(canvas);
+        }
+
+        function init() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 4000);
+            camera.position.set(0, 120, 550);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+            const fontPromise = document.fonts.load('160px "Zhi Mang Xing"');
+            const imgPromise = new Promise(resolve => {
+                const img = new Image(); img.src = 'logo.png'; img.onload = () => resolve(img);
+            });
+
+            Promise.all([fontPromise, imgPromise]).then(([font, img]) => {
+                const fuTexture = createWhiteFuTexture();
+                generateAllShapes(img, fuTexture);
+                document.getElementById('loading-text').style.opacity = 0;
+                document.getElementById('overlay').classList.add('loaded');
+                setTimeout(() => {
+                    document.getElementById('main-title').classList.add('visible');
+                    document.getElementById('sub-title').classList.add('visible');
+                }, 100);
+                animate();
+            });
+
+            window.addEventListener('mousedown', nextState);
+            window.addEventListener('touchstart', e => { e.preventDefault(); nextState(); }, { passive: false });
+            window.addEventListener('resize', onWindowResize);
+            window.addEventListener('deviceorientation', handleOrientation);
+            document.addEventListener('mousemove', onDocumentMouseMove);
+        }
+
+        function nextState() {
+            // --- 核心：触发音乐播放 ---
+            if (!audioStarted) {
+                const bgm = document.getElementById('bgm');
+                bgm.play().catch(e => console.log("等待交互触发音频"));
+                audioStarted = true;
+            }
+            
+            currentState = (currentState + 1) % 4;
+            updateText();
+        }
+
+        // ... (省略部分重复的 generateAllShapes 和 animate 代码，逻辑保持不变)
+        function generateAllShapes(image, texture) {
+            const width = 350; const height = 350 * (image.height / image.width);
+            const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
+            const ctx = canvas.getContext('2d'); ctx.drawImage(image, 0, 0, width, height);
+            const data = ctx.getImageData(0, 0, width, height).data;
+            let validPixels = [];
+            for (let i = 0; i < width * height; i++) {
+                if (data[i * 4 + 3] > 10) { 
+                    validPixels.push({ x: ((i % width) - width / 2) * 2.2, y: (-Math.floor(i / width) + height / 2) * 2.2 });
+                }
+            }
+            const particleCount = validPixels.length;
+            const buildLayers = 25; const buildBaseWidth = 500; const buildTopWidth = 700; const buildHeight = 300; const buildDepth = 400;
+            const bookWidth = 750; const bookDepth = 450; const bookCurve = 160; const bookThickness = 60;
+            for (let i = 0; i < particleCount; i++) {
+                positionsLogo.push({ x: validPixels[i].x, y: validPixels[i].y + 50, z: 0 });
+                positionsScatter.push({ x: THREE.MathUtils.randFloatSpread(1500), y: THREE.MathUtils.randFloatSpread(1500), z: THREE.MathUtils.randFloatSpread(1000) });
+                const layerProg = Math.floor(Math.random() * buildLayers) / buildLayers;
+                const curWidth = buildBaseWidth + (buildTopWidth - buildBaseWidth) * layerProg;
+                const curDepth = buildDepth * (0.8 + layerProg * 0.2);
+                const isEdge = Math.random() > 0.5;
+                let bx, bz;
+                if (isEdge) { if (Math.random() > 0.5) { bx = (Math.random()-0.5)*curWidth; bz = (Math.random()>0.5?0.5:-0.5)*curDepth; } else { bx = (Math.random()>0.5?0.5:-0.5)*curWidth; bz = (Math.random()-0.5)*curDepth; } } 
+                else { bx = (Math.random()-0.5)*curWidth; bz = (Math.random()-0.5)*curDepth; }
+                positionsBuilding.push({ x: bx, y: (layerProg - 0.5) * buildHeight, z: bz });
+                const side = i % 2 === 0 ? -1 : 1; const xRatio = Math.random(); const layerRatio = Math.random(); 
+                const bookX = side * xRatio * (bookWidth / 2); const bookZ = (Math.random() - 0.5) * bookDepth;
+                const baseCurveY = Math.sin(xRatio * Math.PI / 2) * bookCurve; const thicknessOffset = layerRatio * bookThickness;
+                const bookY = baseCurveY + thicknessOffset - 80; 
+                positionsBook.push({ x: bookX, y: bookY, z: bookZ });
+            }
+            createParticles(texture);
+        }
+
+        function createParticles(texture) {
+            const count = positionsLogo.length;
+            const geometry = new THREE.BufferGeometry();
+            const pArray = new Float32Array(count * 3);
+            const sArray = new Float32Array(count);
+            for (let i = 0; i < count; i++) {
+                pArray[i * 3] = positionsScatter[i].x; pArray[i * 3 + 1] = positionsScatter[i].y; pArray[i * 3 + 2] = positionsScatter[i].z;
+                sArray[i] = 15 + Math.random() * 10;
+            }
+            geometry.setAttribute('position', new THREE.BufferAttribute(pArray, 3));
+            geometry.setAttribute('size', new THREE.BufferAttribute(sArray, 1));
+            const material = new THREE.ShaderMaterial({
+                uniforms: { pointTexture: { value: texture } },
+                vertexShader: document.getElementById( 'vertexshader' ).textContent,
+                fragmentShader: document.getElementById( 'fragmentshader' ).textContent,
+                blending: THREE.AdditiveBlending, depthTest: false, transparent: true
+            });
+            particleSystem = new THREE.Points(geometry, material);
+            scene.add(particleSystem);
+        }
+
+        function updateText() {
+            const title = document.getElementById('main-title'); const sub = document.getElementById('sub-title'); const overlay = document.getElementById('overlay');
+            title.classList.remove('visible'); sub.classList.remove('visible');
+            if (currentState === 0) overlay.classList.remove('moved-down'); else overlay.classList.add('moved-down');
+            setTimeout(() => {
+                switch(currentState) {
+                    case 0: title.innerText = "骏马迎春"; sub.innerText = "点击 · 开启"; break;
+                    case 1: title.innerText = "福聚山海"; sub.innerText = "点击 · 筑造"; break;
+                    case 2: title.innerText = "典籍焕彩"; sub.innerText = "点击 · 阅见"; break;
+                    case 3: title.innerText = "以梦为马"; sub.innerText = "点击 · 重播"; break;
+                }
+                title.classList.add('visible'); sub.classList.add('visible');
+            }, 500);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if (!particleSystem) return;
+            const positions = particleSystem.geometry.attributes.position.array;
+            const speed = 0.05;
+            let targetArray;
+            switch(currentState) {
+                case 0: targetArray = positionsScatter; break;
+                case 1: targetArray = positionsLogo; break;
+                case 2: targetArray = positionsBuilding; break;
+                case 3: targetArray = positionsBook; break;
+            }
+            for (let i = 0; i < positionsLogo.length; i++) {
+                const tx = targetArray[i].x; const ty = targetArray[i].y; const tz = targetArray[i].z;
+                positions[i * 3] += (tx - positions[i * 3]) * speed;
+                positions[i * 3 + 1] += (ty - positions[i * 3 + 1]) * speed;
+                positions[i * 3 + 2] += (tz - positions[i * 3 + 2]) * speed;
+            }
+            camera.position.x += (targetCamX - camera.position.x) * 0.05;
+            camera.position.y += (120 + targetCamY - camera.position.y) * 0.05;
+            camera.lookAt(0, 0, 0);
+            if (currentState === 2 || currentState === 3) particleSystem.rotation.y += 0.0025; else particleSystem.rotation.y += 0.0008;
+            particleSystem.geometry.attributes.position.needsUpdate = true;
+            renderer.render(scene, camera);
+        }
+
+        function handleOrientation(event) {
+            const x = event.gamma; const y = event.beta; 
+            if (x && y) { targetCamX = (x / 45) * 100; targetCamY = (y / 45) * 100; }
+        }
+        function onDocumentMouseMove(event) {
+            targetCamX = (event.clientX - windowHalfX) * 0.5;
+            targetCamY = (event.clientY - windowHalfY) * 0.5;
+        }
+        function onWindowResize() {
+            windowHalfX = window.innerWidth / 2; windowHalfY = window.innerHeight / 2;
+            camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        init();
+    </script>
+</body>
+</html>
