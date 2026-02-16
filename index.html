@@ -7,16 +7,21 @@
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&display=swap" as="style">
     <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&display=swap" rel="stylesheet">
 
     <style>
-        body { margin: 0; overflow: hidden; background-color: #000; font-family: "PingFang SC", sans-serif; -webkit-font-smoothing: antialiased; }
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: "PingFang SC", "Microsoft YaHei", sans-serif; -webkit-font-smoothing: antialiased; }
         #bg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(rgba(0,0,0,0.85), rgba(0,0,0,0.6)), url('library.jpg') center/cover no-repeat; filter: blur(25px); transform: scale(1.1); z-index: -1; }
         #canvas-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
         #overlay { position: absolute; top: 45%; left: 50%; width: 100%; text-align: center; pointer-events: none; z-index: 2; transform: translate(-50%, -50%); opacity: 0; transition: opacity 0.5s ease, transform 1s cubic-bezier(0.16, 1, 0.3, 1); }
         #overlay.moved-down { transform: translate(-50%, -50%) translateY(35vh); }
         #overlay.loaded { opacity: 1; }
-        h1 { font-family: 'Zhi Mang Xing', cursive; font-size: 6rem; letter-spacing: 4px; margin: 0; line-height: 1.1; color: #FFD700; text-shadow: 1px 1px 0px #B8860B, 2px 2px 0px #B8860B, 3px 3px 0px #A67C00, 4px 4px 2px #8B6914, 0 0 30px rgba(255, 215, 0, 0.8), 0 0 60px rgba(255, 69, 0, 0.4); opacity: 0; transform: scale(0.8); transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1); }
+        h1 { 
+            font-family: 'Zhi Mang Xing', cursive; font-size: 6rem; letter-spacing: 4px; margin: 0; line-height: 1.1; color: #FFD700; 
+            text-shadow: 1px 1px 0px #B8860B, 2px 2px 0px #B8860B, 3px 3px 0px #A67C00, 4px 4px 2px #8B6914, 0 0 30px rgba(255, 215, 0, 0.8), 0 0 60px rgba(255, 69, 0, 0.4); 
+            opacity: 0; transform: scale(0.8); transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1); 
+        }
         p.hint { font-family: "PingFang SC", sans-serif; font-size: 14px; color: #F0E68C; margin-top: 20px; letter-spacing: 6px; text-shadow: 0 2px 5px rgba(0,0,0,0.8); opacity: 0; transform: translateY(20px); transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.15s; }
         .visible { opacity: 1 !important; transform: scale(1) translateY(0) !important; }
         #loading-text { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #444; font-size: 12px; letter-spacing: 2px; transition: opacity 0.5s; z-index: 0; }
@@ -56,7 +61,8 @@
         import * as THREE from 'https://cdn.skypack.dev/three@0.136.0';
 
         let scene, camera, renderer, particleSystem;
-        let currentState = 0, positionsScatter = [], positionsLogo = [], positionsBuilding = [], positionsBook = []; 
+        let currentState = 0, TOTAL_STATES = 4;
+        let positionsScatter = [], positionsLogo = [], positionsBuilding = [], positionsBook = []; 
         let targetCamX = 0, targetCamY = 0, windowHalfX = window.innerWidth / 2, windowHalfY = window.innerHeight / 2;
         let audioStarted = false;
 
@@ -96,26 +102,48 @@
                 animate();
             });
 
+            // 统一交互事件
             window.addEventListener('mousedown', nextState);
             window.addEventListener('touchstart', e => { e.preventDefault(); nextState(); }, { passive: false });
             window.addEventListener('resize', onWindowResize);
-            window.addEventListener('deviceorientation', handleOrientation);
             document.addEventListener('mousemove', onDocumentMouseMove);
         }
 
+        // --- 核心：处理 iOS 权限与形态切换 ---
         function nextState() {
-            // --- 核心：触发音乐播放 ---
+            // 1. 触发音乐
             if (!audioStarted) {
-                const bgm = document.getElementById('bgm');
-                bgm.play().catch(e => console.log("等待交互触发音频"));
+                document.getElementById('bgm').play().catch(e => console.log("等待交互触发音频"));
                 audioStarted = true;
             }
+
+            // 2. 核心：申请 iOS 陀螺仪权限
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                DeviceOrientationEvent.requestPermission()
+                    .then(permissionState => {
+                        if (permissionState === 'granted') {
+                            window.addEventListener('deviceorientation', handleOrientation);
+                        }
+                    })
+                    .catch(console.error);
+            } else {
+                // 非 iOS 环境直接监听
+                window.addEventListener('deviceorientation', handleOrientation);
+            }
             
-            currentState = (currentState + 1) % 4;
+            currentState = (currentState + 1) % TOTAL_STATES;
             updateText();
         }
 
-        // ... (省略部分重复的 generateAllShapes 和 animate 代码，逻辑保持不变)
+        function handleOrientation(event) {
+            const x = event.gamma; const y = event.beta; 
+            if (x && y) { targetCamX = (x / 45) * 100; targetCamY = (y / 45) * 100; }
+        }
+        function onDocumentMouseMove(event) {
+            targetCamX = (event.clientX - windowHalfX) * 0.5;
+            targetCamY = (event.clientY - windowHalfY) * 0.5;
+        }
+
         function generateAllShapes(image, texture) {
             const width = 350; const height = 350 * (image.height / image.width);
             const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
@@ -212,14 +240,6 @@
             renderer.render(scene, camera);
         }
 
-        function handleOrientation(event) {
-            const x = event.gamma; const y = event.beta; 
-            if (x && y) { targetCamX = (x / 45) * 100; targetCamY = (y / 45) * 100; }
-        }
-        function onDocumentMouseMove(event) {
-            targetCamX = (event.clientX - windowHalfX) * 0.5;
-            targetCamY = (event.clientY - windowHalfY) * 0.5;
-        }
         function onWindowResize() {
             windowHalfX = window.innerWidth / 2; windowHalfY = window.innerHeight / 2;
             camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight);
