@@ -17,6 +17,7 @@
         #overlay { position: absolute; top: 45%; left: 50%; width: 100%; text-align: center; pointer-events: none; z-index: 2; transform: translate(-50%, -50%); opacity: 0; transition: opacity 0.5s ease, transform 1s cubic-bezier(0.16, 1, 0.3, 1); }
         #overlay.moved-down { transform: translate(-50%, -50%) translateY(35vh); }
         #overlay.loaded { opacity: 1; }
+        /* 金色书法字样式 */
         h1 { 
             font-family: 'Zhi Mang Xing', cursive; font-size: 6rem; letter-spacing: 4px; margin: 0; line-height: 1.1; color: #FFD700; 
             text-shadow: 1px 1px 0px #B8860B, 2px 2px 0px #B8860B, 3px 3px 0px #A67C00, 4px 4px 2px #8B6914, 0 0 30px rgba(255, 215, 0, 0.8), 0 0 60px rgba(255, 69, 0, 0.4); 
@@ -52,6 +53,7 @@
         uniform sampler2D pointTexture;
         void main() {
             vec4 texColor = texture2D( pointTexture, gl_PointCoord );
+            // 核心：乘以红色向量 (1.0, 0.1, 0.0)
             gl_FragColor = vec4( vec3(1.0, 0.1, 0.0) * texColor.rgb, texColor.a );
             if ( gl_FragColor.a < 0.1 ) discard;
         }
@@ -102,14 +104,12 @@
                 animate();
             });
 
-            // 统一交互事件
             window.addEventListener('mousedown', nextState);
             window.addEventListener('touchstart', e => { e.preventDefault(); nextState(); }, { passive: false });
             window.addEventListener('resize', onWindowResize);
             document.addEventListener('mousemove', onDocumentMouseMove);
         }
 
-        // --- 核心：处理 iOS 权限与形态切换 ---
         function nextState() {
             // 1. 触发音乐
             if (!audioStarted) {
@@ -189,12 +189,15 @@
             }
             geometry.setAttribute('position', new THREE.BufferAttribute(pArray, 3));
             geometry.setAttribute('size', new THREE.BufferAttribute(sArray, 1));
+            
+            // 【重要修复】恢复使用 ShaderMaterial，并链接到上面的着色器脚本
             const material = new THREE.ShaderMaterial({
                 uniforms: { pointTexture: { value: texture } },
                 vertexShader: document.getElementById( 'vertexshader' ).textContent,
                 fragmentShader: document.getElementById( 'fragmentshader' ).textContent,
                 blending: THREE.AdditiveBlending, depthTest: false, transparent: true
             });
+            
             particleSystem = new THREE.Points(geometry, material);
             scene.add(particleSystem);
         }
