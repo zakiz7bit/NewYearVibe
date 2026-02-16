@@ -99,40 +99,23 @@
             window.addEventListener('mousedown', nextState);
             window.addEventListener('touchstart', e => { e.preventDefault(); nextState(); }, { passive: false });
             window.addEventListener('resize', onWindowResize);
-            // 移除这里的直接监听，改为在 nextState 中按需触发，以兼容 iOS 权限
-            // window.addEventListener('deviceorientation', handleOrientation);
+            window.addEventListener('deviceorientation', handleOrientation);
             document.addEventListener('mousemove', onDocumentMouseMove);
         }
 
-        // --- 这里的改动至关重要：兼容 iOS 的权限申请 ---
-        async function nextState() {
-            // 1. 触发音乐
+        function nextState() {
+            // --- 核心：触发音乐播放 ---
             if (!audioStarted) {
                 const bgm = document.getElementById('bgm');
                 bgm.play().catch(e => console.log("等待交互触发音频"));
                 audioStarted = true;
-            }
-
-            // 2. 申请陀螺仪权限 (修复 iOS 不动的问题)
-            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                try {
-                    const state = await DeviceOrientationEvent.requestPermission();
-                    if (state === 'granted') {
-                        window.addEventListener('deviceorientation', handleOrientation);
-                    }
-                } catch (e) {
-                    console.log("Gyro error:", e);
-                }
-            } else {
-                // 非 iOS 设备直接监听
-                window.addEventListener('deviceorientation', handleOrientation);
             }
             
             currentState = (currentState + 1) % 4;
             updateText();
         }
 
-        // --- 保留了你喜欢的复杂粒子算法 (generateAllShapes) ---
+        // ... (省略部分重复的 generateAllShapes 和 animate 代码，逻辑保持不变)
         function generateAllShapes(image, texture) {
             const width = 350; const height = 350 * (image.height / image.width);
             const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
@@ -145,15 +128,11 @@
                 }
             }
             const particleCount = validPixels.length;
-            
-            // 这里是你喜欢的“分层筑造”逻辑，完全保留
             const buildLayers = 25; const buildBaseWidth = 500; const buildTopWidth = 700; const buildHeight = 300; const buildDepth = 400;
             const bookWidth = 750; const bookDepth = 450; const bookCurve = 160; const bookThickness = 60;
-            
             for (let i = 0; i < particleCount; i++) {
                 positionsLogo.push({ x: validPixels[i].x, y: validPixels[i].y + 50, z: 0 });
                 positionsScatter.push({ x: THREE.MathUtils.randFloatSpread(1500), y: THREE.MathUtils.randFloatSpread(1500), z: THREE.MathUtils.randFloatSpread(1000) });
-                
                 const layerProg = Math.floor(Math.random() * buildLayers) / buildLayers;
                 const curWidth = buildBaseWidth + (buildTopWidth - buildBaseWidth) * layerProg;
                 const curDepth = buildDepth * (0.8 + layerProg * 0.2);
@@ -162,7 +141,6 @@
                 if (isEdge) { if (Math.random() > 0.5) { bx = (Math.random()-0.5)*curWidth; bz = (Math.random()>0.5?0.5:-0.5)*curDepth; } else { bx = (Math.random()>0.5?0.5:-0.5)*curWidth; bz = (Math.random()-0.5)*curDepth; } } 
                 else { bx = (Math.random()-0.5)*curWidth; bz = (Math.random()-0.5)*curDepth; }
                 positionsBuilding.push({ x: bx, y: (layerProg - 0.5) * buildHeight, z: bz });
-
                 const side = i % 2 === 0 ? -1 : 1; const xRatio = Math.random(); const layerRatio = Math.random(); 
                 const bookX = side * xRatio * (bookWidth / 2); const bookZ = (Math.random() - 0.5) * bookDepth;
                 const baseCurveY = Math.sin(xRatio * Math.PI / 2) * bookCurve; const thicknessOffset = layerRatio * bookThickness;
